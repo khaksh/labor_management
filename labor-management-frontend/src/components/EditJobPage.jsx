@@ -25,7 +25,25 @@ const EditJobPage = () => {
 
   // Store the fetched role requirements to display and potentially pass to the PUT request
   const [currentRoleRequirements, setCurrentRoleRequirements] = useState([]);
+  const [availableRoles, setAvailableRoles] = useState([]); // To store roles fetched from /roles
 
+  // Fetch all available roles for the dropdown
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/roles');
+        if (!response.ok) {
+          throw new Error('Failed to fetch roles');
+        }
+        const rolesData = await response.json();
+        setAvailableRoles(rolesData);
+      } catch (err) {
+        console.error(err);
+        // setError(err.message); // Optionally set an error state for roles fetching
+      }
+    };
+    fetchRoles();
+  }, []); // Empty dependency array, fetch once on mount
 
   const fetchJobDetails = useCallback(async () => {
     setLoading(true);
@@ -52,7 +70,18 @@ const EditJobPage = () => {
       setDescription(data.description || '');
       setOrganizerName(data.organizerName || '');
       setStatus(data.status || ''); // e.g., 'draft', 'confirmed'
-      setCurrentRoleRequirements(data.roleRequirements || []);
+      
+      // Ensure roleRequirements from job data have a unique temporary ID for mapping keys if needed,
+      // and values are appropriate for form inputs.
+      // The actual ID from the database is `req.id`. `roleId` is the FK to the Role table.
+      setCurrentRoleRequirements(data.roleRequirements?.map((req, index) => ({
+          id: req.id || `temp-${index}`, // Use existing ID or a temporary one for new/unsaved items
+          roleId: req.role?.id || req.roleId || '', // Prefer role.id, fallback to roleId
+          numberOfWorkersNeeded: req.numberOfWorkersNeeded || 1,
+          payRateForJob: String(req.payRateForJob || '0.00'), // Ensure it's a string for input
+          // Keep the original role object if present, useful for display name
+          role: req.role 
+      })) || []);
 
     } catch (err) {
       console.error("Failed to fetch job details:", err);
@@ -68,29 +97,100 @@ const EditJobPage = () => {
     }
   }, [jobId, fetchJobDetails]);
 
+  // --- Handlers for Role Requirements ---
+  const handleAddRoleRequirement = () => {
+    setCurrentRoleRequirements(prevReqs => [
+      ...prevReqs,
+      {
+        id: `new-${Date.now()}`, // Temporary unique ID for a new unsaved requirement
+        roleId: availableRoles.length > 0 ? availableRoles[0].id : '', // Default to first available role or empty
+        numberOfWorkersNeeded: 1,
+        payRateForJob: '0.00',
+      }
+    ]);
+  };
+
+  const handleRoleRequirementChange = (index, field, value) => {
+    const updatedReqs = [...currentRoleRequirements];
+    const requirementToUpdate = { ...updatedReqs[index] };
+
+    if (field === 'numberOfWorkersNeeded') {
+        requirementToUpdate[field] = parseInt(value, 10) || 0;
+    } else if (field === 'payRateForJob') {
+        // Allow decimal numbers, basic validation
+        if (/^\d*\.?\d*$/.test(value)) {
+            requirementToUpdate[field] = value;
+        }
+    } else { // For roleId
+        requirementToUpdate[field] = value;
+    }
+    
+    updatedReqs[index] = requirementToUpdate;
+    setCurrentRoleRequirements(updatedReqs);
+  };
+
+  const handleRemoveRoleRequirement = (idToRemove) => {
+    // Filter out by the unique 'id' (either from DB or temp id for new ones)
+    setCurrentRoleRequirements(prevReqs => prevReqs.filter(req => req.id !== idToRemove));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     setSubmitError(null);
 
+    // Prepare roleRequirements for submission:
+    // The backend expects roleId, numberOfWorkersNeeded, payRateForJob.
+    // It doesn't need the temporary 'id' or the nested 'role' object.
+    const roleRequirementsToSubmit = currentRoleRequirements.map(req => {
+        if (!req.roleId || req.numberOfWorkersNeeded <= 0 || isNaN(parseFloat(req.payRateForJob))) {
+            // This is a client-side validation. Consider marking fields as invalid.
+            // For now, we might filter out invalid ones or rely on backend validation.
+            // Throwing an error here would stop submission.
+            // For simplicity in this step, we assume items in currentRoleRequirements are valid enough to try submitting.
+            // A more robust solution would have per-field validation and error display.
+        }
+        return {
+            roleId: req.roleId,
+            numberOfWorkersNeeded: parseInt(req.numberOfWorkersNeeded, 10),
+            payRateForJob: String(req.payRateForJob) // Ensure it's a string
+        };
+    }).filter(req => req.roleId && req.numberOfWorkersNeeded > 0 && !isNaN(parseFloat(req.payRateForJob))); // Basic filter for valid items
+
     const updatedJobData = {
       title,
       location,
-      startDatetime: new Date(startDatetime).toISOString(), // Convert back to ISO string for backend
-      endDatetime: new Date(endDatetime).toISOString(),   // Convert back to ISO string for backend
+      startDatetime: new Date(startDatetime).toISOString(),
+      endDatetime: new Date(endDatetime).toISOString(),
       description,
       organizerName,
       status,
-      // For now, we are NOT sending roleRequirements in the PUT for basic field updates
-      // If you want to update them, you'd include them here.
-      // roleRequirements: currentRoleRequirements.map(r => ({...r, payRateForJob: String(r.payRateForJob) })) // Example if sending them
+      roleRequirements: roleRequirementsToSubmit, // Include the processed role requirements
     };
 
-    // Basic validation: Ensure start is before end
     if (new Date(startDatetime) >= new Date(endDatetime)) {
         setSubmitError("End date and time must be after start date and time.");
         setIsSubmitting(false);
         return;
+    }
+    
+    // Basic check for role requirements before submitting
+    for (const req of roleRequirementsToSubmit) {
+        if (!req.roleId || !availableRoles.find(r => r.id === req.roleId)) {
+            setSubmitError(`Invalid Role ID selected in one of the requirements. Please select a valid role.`);
+            setIsSubmitting(false);
+            return;
+        }
+        if (req.numberOfWorkersNeeded <= 0) {
+            setSubmitError(`Number of workers must be greater than 0 for all role requirements.`);
+            setIsSubmitting(false);
+            return;
+        }
+        if (isNaN(parseFloat(req.payRateForJob)) || parseFloat(req.payRateForJob) < 0) {
+            setSubmitError(`Pay rate must be a valid non-negative number for all role requirements.`);
+            setIsSubmitting(false);
+            return;
+        }
     }
 
     console.log("Submitting updated job data:", updatedJobData);
@@ -111,9 +211,9 @@ const EditJobPage = () => {
         throw new Error(errorMsg);
       }
       
-      // On successful update
-      alert('Job updated successfully!'); // Or use a more subtle notification
-      navigate('/'); // Navigate back to dashboard
+      alert('Job updated successfully!');
+      fetchJobDetails(); // Re-fetch job details to get updated IDs for roleRequirements if any were new
+      // Or navigate away: navigate('/'); 
     } catch (error) {
       console.error("Failed to update job:", error);
       setSubmitError(error.message);
@@ -122,7 +222,7 @@ const EditJobPage = () => {
     }
   };
 
-  if (loading) return <p>Loading job details...</p>;
+  if (loading && !availableRoles.length) return <p>Loading job details and roles...</p>; // Combined loading
   if (error) return <p style={{color: 'red'}}>Error loading job: {error} <Link to="/">Go to Dashboard</Link></p>;
   // If !job, it might be because fetchJobDetails cleared it due to an error, error state should cover this.
 
@@ -218,22 +318,68 @@ const EditJobPage = () => {
             </select>
         </div>
 
-
-        {/* --- Role Requirements (Display Only For Now) --- */}
+        {/* --- Editable Role Requirements Section --- */}
         <div style={{ marginTop: '20px', marginBottom: '20px', padding: '15px', border: '1px solid #e0e0e0', borderRadius: '4px' }}>
           <h3>Role Requirements:</h3>
-          {currentRoleRequirements && currentRoleRequirements.length > 0 ? (
-            <ul>
-              {currentRoleRequirements.map(req => (
-                <li key={req.id || req.roleId}> {/* Fallback key if req.id isn't available pre-save */}
-                  {req.role?.name || `Role ID: ${req.roleId}`}: {req.numberOfWorkersNeeded} needed @ ${req.payRateForJob}/hr
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>No role requirements specified for this job.</p>
-          )}
-          <p><em>(Editing role requirements in this form will be implemented separately.)</em></p>
+          {currentRoleRequirements.map((req, index) => (
+            <div key={req.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px', padding: '10px', border: '1px solid #f0f0f0', borderRadius: '4px' }}>
+              <div style={{flexGrow: 1}}>
+                <label htmlFor={`role-${req.id}`} style={{display: 'block', marginBottom: '3px', fontSize: '0.9em'}}>Role:</label>
+                <select
+                  id={`role-${req.id}`}
+                  value={req.roleId}
+                  onChange={(e) => handleRoleRequirementChange(index, 'roleId', e.target.value)}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px'  }}
+                  disabled={isSubmitting}
+                >
+                  <option value="">Select Role</option>
+                  {availableRoles.map(role => (
+                    <option key={role.id} value={role.id}>{role.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{width: '100px'}}>
+                <label htmlFor={`workers-${req.id}`} style={{display: 'block', marginBottom: '3px', fontSize: '0.9em'}}># Workers:</label>
+                <input
+                  type="number"
+                  id={`workers-${req.id}`}
+                  value={req.numberOfWorkersNeeded}
+                  onChange={(e) => handleRoleRequirementChange(index, 'numberOfWorkersNeeded', e.target.value)}
+                  min="1"
+                  style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px'  }}
+                  disabled={isSubmitting}
+                />
+              </div>
+              <div style={{width: '120px'}}>
+                <label htmlFor={`rate-${req.id}`} style={{display: 'block', marginBottom: '3px', fontSize: '0.9em'}}>Pay Rate ($/hr):</label>
+                <input
+                  type="text" // Use text to allow decimal input easily, validation in handler
+                  id={`rate-${req.id}`}
+                  value={req.payRateForJob}
+                  onChange={(e) => handleRoleRequirementChange(index, 'payRateForJob', e.target.value)}
+                  placeholder="e.g., 25.50"
+                  style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px'  }}
+                  disabled={isSubmitting}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => handleRemoveRoleRequirement(req.id)}
+                style={{ padding: '8px 12px', backgroundColor: '#ff4d4f', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', alignSelf: 'flex-end' }}
+                disabled={isSubmitting}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={handleAddRoleRequirement}
+            style={{ marginTop: '10px', padding: '10px 15px', backgroundColor: '#1890ff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+            disabled={isSubmitting}
+          >
+            + Add Role Requirement
+          </button>
         </div>
         
         {submitError && <p style={{ color: 'red', marginBottom: '10px' }}>Error: {submitError}</p>}

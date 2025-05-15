@@ -1,5 +1,6 @@
     // src/components/DashboardPage.jsx
     import React, { useState, useEffect, useCallback } from 'react';
+    import { useNavigate } from 'react-router-dom';
     import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
     import format from 'date-fns/format';
     import parse from 'date-fns/parse';
@@ -22,6 +23,7 @@
     });
 
     const DashboardPage = () => {
+      const navigate = useNavigate();
       const [jobs, setJobs] = useState([]);
       const [calendarEvents, setCalendarEvents] = useState([]);
       const [selectedJob, setSelectedJob] = useState(null);
@@ -93,8 +95,7 @@
         setSelectedJob(null);
       };
 
-      const handleNavigate = useCallback((newDate, view, action) => {
-        console.log('Calendar navigated!', { newDate, view, action });
+      const handleNavigateCalendar = useCallback((newDate) => {
         setCurrentCalendarDate(newDate);
       }, []);
 
@@ -102,22 +103,34 @@
         fetchJobs();
       };
 
+      const handleNavigateToCreateJob = () => {
+        navigate('/jobs/new');
+      };
+
       return (
         <div style={{ height: '90vh', padding: '20px' }}>
-          <h1 style={{ textAlign: 'center', marginBottom: '20px' }}>Job Dashboard</h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h1 style={{ textAlign: 'center' }}>Job Dashboard</h1>
+            <button
+              onClick={handleNavigateToCreateJob}
+              style={{ padding: '10px 20px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '1em' }}
+            >
+              + Add New Job
+            </button>
+          </div>
           <Calendar
             localizer={localizer}
             events={calendarEvents}
             startAccessor="start"
             endAccessor="end"
             titleAccessor="title"
-            style={{ height: 'calc(100% - 50px)' }}
+            style={{ height: 'calc(100% - 70px)' }}
             defaultView="month"
             views={['month', 'week', 'day', 'agenda']}
             onSelectEvent={handleSelectEvent}
             selectable
             date={currentCalendarDate}
-            onNavigate={handleNavigate}
+            onNavigate={handleNavigateCalendar}
           />
 
           {isModalOpen && selectedJob && (

@@ -4,6 +4,7 @@ import './App.css';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import DashboardPage from './components/DashboardPage';
 import EditJobPage from './components/EditJobPage';
+import CreateJobPage from './components/CreateJobPage';
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/jobs/:jobId/edit" element={<EditJobPage />} />
+          <Route path="/jobs/new" element={<CreateJobPage />} />
           <Route path="*" element={<div><h2>404 Not Found</h2><Link to="/">Go to Dashboard</Link></div>} />
         </Routes>
       </div>
