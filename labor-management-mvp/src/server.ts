@@ -1,10 +1,19 @@
     // src/server.ts
     import express, { Request, Response } from 'express';
     import { PrismaClient } from './generated/prisma';
+    import cors from 'cors';
 
     const app = express();
     const prisma = new PrismaClient();
     const PORT = process.env.PORT || 3001;
+
+    // --- MIDDLEWARE ---
+    // Option 1: Allow all origins (simplest for development)
+    app.use(cors());
+
+    // Option 2: Allow only your frontend origin (better for specific control)
+    // Make sure this matches the port your frontend is actually running on (3002 in your case)
+    // app.use(cors({ origin: 'http://localhost:3002' }));
 
     app.use(express.json()); // Middleware to parse JSON bodies
 
@@ -203,37 +212,53 @@
       }
     });
 
-    // GET /jobs - Fetch all jobs
-    app.get('/jobs', async (req: Request, res: Response) => {
+    // GET all jobs
+    app.get('/jobs', async (req, res) => {
       try {
-        const jobs = await prisma.job.findMany();
+        const jobs = await prisma.job.findMany({
+          include: {
+            roleRequirements: {
+              include: {
+                role: true
+              }
+            },
+            assignments: {
+              include: {
+                worker: true,
+                role: true
+              }
+            }
+          },
+          orderBy: {
+            startDatetime: 'asc'
+          }
+        });
         res.json(jobs);
       } catch (error) {
-        console.error('Failed to fetch jobs:', error);
+        console.error("Failed to fetch jobs:", error);
         res.status(500).json({ message: 'Failed to fetch jobs' });
       }
     });
 
-    // GET /jobs/:id - Fetch a single job by ID
-    app.get('/jobs/:id', async (req: Request, res: Response) => {
+    // GET a single job by ID
+    app.get('/jobs/:id', async (req, res) => {
       const { id } = req.params;
       try {
-        // Also fetch related roleRequirements and assignments if needed by client
         const job = await prisma.job.findUnique({
           where: { id },
           include: {
-            roleRequirements: {
+            roleRequirements: { // Include JobRoleRequirement
               include: {
-                role: true, // Include role details within each requirement
-              },
+                role: true // And within each, include the Role
+              }
             },
-            assignments: {
+            assignments: { // Include JobAssignment
               include: {
-                worker: true, // Include worker details
-                role: true,   // Include role details
-              },
-            },
-          },
+                worker: true, // And within each, include the Worker
+                role: true    // And within each, include the Role
+              }
+            }
+          }
         });
         if (!job) {
           return res.status(404).json({ message: 'Job not found' });
