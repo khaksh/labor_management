@@ -27,23 +27,31 @@ const EditJobPage = () => {
   const [currentRoleRequirements, setCurrentRoleRequirements] = useState([]);
   const [availableRoles, setAvailableRoles] = useState([]); // To store roles fetched from /roles
 
+  // State for creating a new role
+  const [showCreateRoleForm, setShowCreateRoleForm] = useState(false);
+  const [newRoleName, setNewRoleName] = useState('');
+  const [newRolePayRate, setNewRolePayRate] = useState('');
+  const [createRoleError, setCreateRoleError] = useState(null);
+  const [isCreatingRole, setIsCreatingRole] = useState(false);
+
   // Fetch all available roles for the dropdown
-  useEffect(() => {
-    const fetchRoles = async () => {
-      try {
-        const response = await fetch('http://localhost:3001/roles');
-        if (!response.ok) {
-          throw new Error('Failed to fetch roles');
-        }
-        const rolesData = await response.json();
-        setAvailableRoles(rolesData);
-      } catch (err) {
-        console.error(err);
-        // setError(err.message); // Optionally set an error state for roles fetching
+  const fetchRoles = useCallback(async () => {
+    try {
+      const response = await fetch('http://localhost:3001/roles');
+      if (!response.ok) {
+        throw new Error('Failed to fetch roles');
       }
-    };
+      const rolesData = await response.json();
+      setAvailableRoles(rolesData);
+    } catch (err) {
+      console.error(err);
+      // setError(err.message); // Optionally set an error state for roles fetching
+    }
+  }, []);
+
+  useEffect(() => {
     fetchRoles();
-  }, []); // Empty dependency array, fetch once on mount
+  }, [fetchRoles]);
 
   const fetchJobDetails = useCallback(async () => {
     setLoading(true);
@@ -96,6 +104,56 @@ const EditJobPage = () => {
       fetchJobDetails();
     }
   }, [jobId, fetchJobDetails]);
+
+  // --- Handler for Creating a New Role ---
+  const handleCreateRole = async () => {
+    if (!newRoleName.trim()) {
+      setCreateRoleError("Role name cannot be empty.");
+      return;
+    }
+    // Basic validation for pay rate (optional, can be handled by backend too)
+    const payRate = parseFloat(newRolePayRate);
+    if (newRolePayRate.trim() && (isNaN(payRate) || payRate < 0)) {
+        setCreateRoleError("Invalid pay rate. Must be a non-negative number.");
+        return;
+    }
+
+    setIsCreatingRole(true);
+    setCreateRoleError(null);
+
+    try {
+        const response = await fetch('http://localhost:3001/roles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: newRoleName,
+                ...(newRolePayRate.trim() && { defaultPayRate: newRolePayRate }) // Send only if provided
+            }),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || `Failed to create role. Status: ${response.status}`);
+        }
+
+        const createdRole = await response.json();
+        alert('Role created successfully!');
+        setNewRoleName('');
+        setNewRolePayRate('');
+        setShowCreateRoleForm(false);
+        await fetchRoles(); // Re-fetch roles to include the new one
+
+        // Optionally, add the new role to the current job's requirements
+        // Or select it in a dropdown if that's the UX flow.
+        // For now, just refetching roles.
+
+    } catch (error) {
+        console.error("Failed to create role:", error);
+        setCreateRoleError(error.message);
+    } finally {
+        setIsCreatingRole(false);
+    }
+  };
 
   // --- Handlers for Role Requirements ---
   const handleAddRoleRequirement = () => {
@@ -321,6 +379,71 @@ const EditJobPage = () => {
         {/* --- Editable Role Requirements Section --- */}
         <div style={{ marginTop: '20px', marginBottom: '20px', padding: '15px', border: '1px solid #e0e0e0', borderRadius: '4px' }}>
           <h3>Role Requirements:</h3>
+
+          {/* Button to toggle Create New Role form */}
+          {!showCreateRoleForm && (
+            <button
+              type="button"
+              onClick={() => setShowCreateRoleForm(true)}
+              style={{ marginBottom: '15px', padding: '8px 12px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+              disabled={isSubmitting || isCreatingRole}
+            >
+              + Create New Role
+            </button>
+          )}
+
+          {/* Create New Role Form */}
+          {showCreateRoleForm && (
+            <div style={{ marginBottom: '20px', padding: '15px', border: '1px solid #d0d0d0', borderRadius: '4px', backgroundColor: '#f9f9f9' }}>
+              <h4>Create a New Role</h4>
+              <div>
+                <label htmlFor="newRoleName">Role Name:</label>
+                <input
+                  type="text"
+                  id="newRoleName"
+                  value={newRoleName}
+                  onChange={(e) => setNewRoleName(e.target.value)}
+                  style={{ width: '100%', padding: '8px', marginBottom: '10px', border: '1px solid #ccc', borderRadius: '4px' }}
+                  disabled={isCreatingRole}
+                />
+              </div>
+              <div>
+                <label htmlFor="newRolePayRate">Default Pay Rate ($/hr, optional):</label>
+                <input
+                  type="text" // Using text for flexible input, validation on submit
+                  id="newRolePayRate"
+                  value={newRolePayRate}
+                  onChange={(e) => setNewRolePayRate(e.target.value)}
+                  placeholder="e.g., 20.00"
+                  style={{ width: '100%', padding: '8px', marginBottom: '10px', border: '1px solid #ccc', borderRadius: '4px' }}
+                  disabled={isCreatingRole}
+                />
+              </div>
+              {createRoleError && <p style={{ color: 'red', fontSize: '0.9em', marginBottom: '10px' }}>{createRoleError}</p>}
+              <button
+                type="button"
+                onClick={handleCreateRole}
+                style={{ padding: '8px 15px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', marginRight: '10px' }}
+                disabled={isCreatingRole || !newRoleName.trim()}
+              >
+                {isCreatingRole ? 'Saving Role...' : 'Save Role'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCreateRoleForm(false);
+                  setNewRoleName('');
+                  setNewRolePayRate('');
+                  setCreateRoleError(null);
+                }}
+                style={{ padding: '8px 15px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                disabled={isCreatingRole}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
           {currentRoleRequirements.map((req, index) => (
             <div key={req.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px', padding: '10px', border: '1px solid #f0f0f0', borderRadius: '4px' }}>
               <div style={{flexGrow: 1}}>

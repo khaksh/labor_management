@@ -169,6 +169,8 @@
               <div style={detailItemStyle}><strong style={strongStyle}>Organizer:</strong> {job.organizerName}</div>
             )}
             
+
+            
             {/* Placeholder for Role Requirements */}
             <div style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid #eee' }}>
               <h3 style={{ fontSize: '1.2em', color: '#333', marginBottom: '10px' }}>Role Requirements</h3>

@@ -66,6 +66,7 @@ model Job {
   notifications         Notification[] // If you include notifications
 }
 
+
 model JobRoleRequirement {
   id                    String    @id @default(uuid())
   jobId                 String
